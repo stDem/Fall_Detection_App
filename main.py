@@ -18,8 +18,6 @@ from kivy.graphics.texture import Texture
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.widget import Widget
-from kivy.uix.screenmanager import ScreenManager, Screen
-from kivy.uix.label import Label
 from kivy.uix.video import Video
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.gridlayout import GridLayout
@@ -42,18 +40,19 @@ class VideoApp(App):
         self.connections = [(0, 1), (0, 2), (1, 2), (1, 3), (2, 4), (3, 5), (4, 6), (5, 7), (6, 8), (1, 12), (12, 10), (2, 11), (11, 9)]
 
         # Path to the local MP4 video file
-        self.video_path = "E:/Users/Настя/Downloads/thws/Project/app/latest/test2.mp4"
+        # self.video_path = "E:/Users/Настя/Downloads/thws/Project/app/latest/test2.mp4"
         # video_path = "rtsp://admin:Fall_Detection0@192.168.0.100:554/h264Preview_01_sub"
 
         self.output_path = "E:/Users/Настя/Downloads/thws/Project/app/latest/output_video.mp4"  # Output video file
         self.speed_factor = 1  # Default speed factor
 
         # Open the video file and get its properties
-        self.cap = cv2.VideoCapture(self.video_path)
+        # self.cap = cv2.VideoCapture(self.video_path)
+        self.cap = cv2.VideoCapture(0)  # '0' - the first camera (web camera)
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.frame_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.new_fps = self.fps * self.speed_factor  # Adjust frame rate based on speed
+        self.new_fps = 0.08 * self.fps * self.speed_factor  # Adjust frame rate based on speed
 
         # Initialize the VideoWriter to save the output
         self.fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec for mp4
@@ -67,7 +66,6 @@ class VideoApp(App):
         self.sequence_length = 10
         self.pose_sequence = []
         self.fall_detected = False
-        self.last_fall_time = 0
         self.fall_segment_writer = None
         self.fall_segment_path = "E:/Users/Настя/Downloads/thws/Project/app/latest/records/fall_segment_{}.mp4"
         self.fall_sequence = []
@@ -86,30 +84,30 @@ class VideoApp(App):
         self.video_list = []
         self.current_video = None
         
-        # Основной контейнер
+        # The main container
         self.main_container = BoxLayout(orientation='vertical', padding=20, spacing=10)
 
-        # Контейнер для видео
+        # Video container
         self.video_layout = BoxLayout(size_hint=(1, 0.8))
-         # Виджет для отображения видео
-        self.image = Image(size_hint=(1, 1))  # Видео адаптируется по размеру контейнера
+        # Widget for displaying video
+        self.image = Image(size_hint=(1, 1))  # The video adapts to the container size
 
 
         self.video_layout.add_widget(self.image)
 
-        # Контейнер для кнопки
+        # Container for button
         button_layout = BoxLayout(size_hint=(1, 0.2), padding=[20, 10])
         self.button = Button(text="Show alarm records", size_hint=(None, None), size=(300, 50))
         self.button.bind(on_press=self.toggle_view)
-        button_layout.add_widget(Widget())  # Пустое пространство слева
+        button_layout.add_widget(Widget())  # Empty space on the left
         button_layout.add_widget(self.button)
-        button_layout.add_widget(Widget())  # Пустое пространство справа
+        button_layout.add_widget(Widget())  # Empty space on the right
 
-        # Добавляем видео и кнопку в основной контейнер
+        # Adding a video and a button to the main container
         self.main_container.add_widget(self.video_layout)
         self.main_container.add_widget(button_layout)
 
-        # Состояние отображения (видеопоток или другое содержимое)
+        # Display state (video stream or other content)
         self.is_video_shown = True
         self.running = True
         self.video_thread = threading.Thread(target=self.main_loop, daemon=True)
@@ -121,13 +119,15 @@ class VideoApp(App):
     
     
     def on_start(self):
-        # Запускаем обработку видео в отдельном потоке
-        self.cap = cv2.VideoCapture(self.video_path)
+        # start video processing in a separate thread
+        # self.cap = cv2.VideoCapture(self.video_path)
+        self.cap = cv2.VideoCapture(0)  # '0' - the first camera (web camera)
+        
         self.video_thread.start()
     
        
     def on_stop(self):
-        # Останавливаем поток при закрытии приложения
+        # Stop the thread when the application closes
         self.running = False
         if self.cap.isOpened():
             self.cap.release()
@@ -136,14 +136,13 @@ class VideoApp(App):
 # ============Video_records part=================================================================================
     def video_records_container(self):
         video_container = BoxLayout(orientation='vertical', padding=20, spacing=10)
-        # Контейнер для отображения видео
+        # Container for displaying video
         video_image = Image(size_hint=(1, 0.8))
         video_container.add_widget(video_image)
 
-        # Контейнер для кнопок управления
+        # Container for control buttons
         control_buttons = BoxLayout(size_hint=(1, 0.2), padding=10, spacing=10)
         back_button = Button(text="Back to Video List", size_hint=(1, None), height=50)
-        # back_button.bind(on_press=self.show_video_list)
         control_buttons.add_widget(back_button)
         video_container.add_widget(control_buttons)
         
@@ -153,70 +152,67 @@ class VideoApp(App):
         control_buttons.add_widget(back_button)
         video_container.add_widget(control_buttons)
 
-        # Изначально показываем список видео
+        # Initially show a list of videos
         self.show_video_list(video_container, control_buttons, video_image)
-        # Обновление интерфейса
-
 
         return video_container
         
     def create_video_list_container(self, video_container, video_image, control_buttons):
-        """Создает контейнер для отображения списка видео."""
-        # Прокручиваемый виджет
+        """Creates a container for displaying a list of videos.."""
+        # Scrollable widget
         scroll_view = ScrollView(size_hint=(1, 1))
         grid = GridLayout(cols=1, spacing=10, size_hint_y=None)
         grid.bind(minimum_height=grid.setter('height'))
 
-        # Обновляем список видео
+        # Updating the video list
         self.update_video_list()
 
-        # Добавляем кнопки для каждого видео
-        # Добавляем кнопки для каждого видео
+        # Add buttons for each video
         for video_name in self.video_list:
             button = Button(text=video_name, size_hint=(1, None), height=50)
-            button.id = video_name  # Устанавливаем id кнопки равным имени видео
+            button.id = video_name  # Set the button id equal to the video name
             button.bind(on_press=lambda instance: self.on_video_button_press(video_container, video_image, control_buttons, instance))
             grid.add_widget(button)
         scroll_view.add_widget(grid)
         return scroll_view
 
     def on_video_button_press(self, video_container, video_image, control_buttons, instance):
-        """Обрабатывает нажатие на кнопку с видео."""
-        selected_video_name = instance.id  # Получаем имя видео из id кнопки
+        """Processes a click on a button with a video."""
+        selected_video_name = instance.id  # Get the video name from the button id
         print(f"Selected video: {selected_video_name}")
-        # Запускаем воспроизведение видео
+        # Start playing the video
         self.play_video(selected_video_name, video_container, video_image, control_buttons)
         
     def update_video_list(self):
-        """Обновление списка видео в папке."""
+        """Updating the list of videos in the folder."""
         self.video_list = [f for f in os.listdir(self.fall_segments_folder) if f.endswith('.mp4')]
 
     def show_video_list(self, video_container, control_buttons, video_image, instance=None):
-        """Отображает список доступных видео."""
+        """Displays a list of available videos.."""
         video_container.clear_widgets()
 
-        # Создаем контейнер для списка видео
+        # Create a container for a video list
         video_list_container = self.create_video_list_container(video_container, video_image, control_buttons)
 
-        # Добавляем контейнер в основной виджет
+        # Adding a container to the main widget
         video_container.add_widget(video_list_container)
 
 
     def play_video(self, video_name, video_container, video_image, control_buttons):
-        """Начинает воспроизведение выбранного видео."""
-        # Очищаем контейнер
+        """Starts playing the selected video."""
+        # clear the container
         video_container.clear_widgets()
         current_video_path = os.path.join(self.fall_segments_folder, video_name)
         self.capture = cv2.VideoCapture(current_video_path)
 
-        # Добавляем виджеты видео и управления
+        # Add video and control widgets
         video_container.add_widget(video_image)
         video_container.add_widget(control_buttons)
 
-        # Используем лямбду для отложенного вызова с аргументами
+        # Using Lambda for delayed call with arguments
         Clock.schedule_interval(
             lambda dt: self.update_frame(video_container, control_buttons, video_image),
-            1.0 / 30.0
+            1.0 / self.new_fps
         )
 # update frames for video records
     def update_frame(self, video_container, control_buttons, video_image): 
@@ -232,13 +228,13 @@ class VideoApp(App):
                 video_image.texture = texture
             else:
                 self.capture.release()
-                Clock.unschedule(self.update_frame)  # Останавливаем обновление кадров
+                Clock.unschedule(self.update_frame)  # Stop updating frames
                 self.show_video_list(video_container, control_buttons, video_image)
 #=====================================================================================================
 
     def update(self, frame):
         if frame is not None:
-        # Преобразуем кадр в текстуру Kivy
+        # Convert the frame to a Kivy texture
             frame = frame[::-1]  # rotate frame
             buffer = frame.tobytes()
             texture = Texture.create(size=(frame.shape[1], frame.shape[0]), colorfmt='bgr')
@@ -247,23 +243,23 @@ class VideoApp(App):
             
 
     def toggle_view(self, instance):
-        # Удаляем содержимое из video_layout
+        # Remove content from video_layout
         self.video_layout.clear_widgets()
 
         if self.is_video_shown:
-            # Переключение на контейнер с записями
+            # Switching to a container with records
             video_container = self.video_records_container()
             self.video_layout.add_widget(video_container)
             self.button.text = "Show video stream"
         else:
-            # Убедимся, что image не привязан к другому родителю
+            # make sure that image is not attached to another parent
             if self.image.parent:
                 self.image.parent.remove_widget(self.image)
-            # Добавляем image
+            # add image
             self.video_layout.add_widget(self.image)
             self.button.text = "Show alarm records"
         
-        # Переключаем состояние
+        # Switch the state
         self.is_video_shown = not self.is_video_shown
 
 
@@ -312,7 +308,7 @@ class VideoApp(App):
 
 
     def main_loop(self):
-    # Основной цикл обработки видео
+    # the main video processing loop
         while self.running:
             ret, frame = self.cap.read()
             if not ret:
@@ -323,20 +319,20 @@ class VideoApp(App):
             if self.frame_count % int(self.speed_factor) != 0:
                 continue
 
-            # Обработка кадра
+            # Frame processing
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             frame.flags.writeable = False
             self.results = self.pose.process(frame)
             frame.flags.writeable = True
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-            # Обработка логики кадра
+            # Frame logic processing
             self.process_frame(frame)
 
-            # Обновляем виджет с новым кадром
+            # Update the widget with a new frame
             Clock.schedule_once(lambda dt: self.update(frame))
 
-            # Завершение по клавише
+            # Key completion
             if cv2.waitKey(1) & 0xFF == 27:
                 self.running = False
                 break
@@ -345,7 +341,10 @@ class VideoApp(App):
         
         
     def process_frame(self, frame):
-        """Обрабатывает кадр и управляет записью падения."""
+        """Processes frame and manages fall recording with two stop conditions:
+        1. Person gets up (no_fall)
+        2. Person has been falling for 50 frames
+        """
         if self.results.pose_landmarks:
             selected_pose_landmarks = [self.results.pose_landmarks.landmark[i] for i in self.landmark_indexes]
             pose_landmarks = [[lmk.x, lmk.y] for lmk in selected_pose_landmarks]
@@ -361,37 +360,40 @@ class VideoApp(App):
                 prediction = self.model.predict(self.lstm_input)
 
                 if prediction[0][0] > 0.5:
-                    # "No Fall" - заканчиваем запись, если идет
+                    # "No Fall" - end recording if active
                     skeleton_color = (0, 255, 0)
                     text = 'No Fall'
                     self.fall_frame_count = 0
                     self.non_fall_frame_count += 1
+                    
+                    # End recording if person gets up
                     if self.fall_recording and self.non_fall_frame_count >= self.fall_sequence_threshold:
-                        self.fall_recording = False
-                        if self.fall_segment_writer:
-                            self.fall_segment_writer.release()
-                            self.fall_segment_writer = None
+                        self.save_and_reset_recording()
                 else:
-                    # "Fall" - начинаем запись или продолжаем
+                    # "Fall" detected
                     skeleton_color = (0, 0, 255)
                     text = 'Fall'
                     self.non_fall_frame_count = 0
                     self.fall_frame_count += 1
-                    if not self.fall_recording:
-                        if self.fall_frame_count >= self.fall_sequence_threshold:
-                            self.fall_recording = True
-                            self.fall_segment_index += 1
-                            self.fall_segment_writer = cv2.VideoWriter(
-                                self.fall_segment_path.format(self.fall_segment_index),
-                                self.fourcc, self.new_fps, (self.frame_width, self.frame_height)
-                            )
 
-                # Отображение текста на кадре
-                cv2.putText(frame, text, (frame.shape[1] - 150, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, skeleton_color, 2, cv2.LINE_AA)
+                    # Start recording if not already recording
+                    if not self.fall_recording and self.fall_frame_count >= self.fall_sequence_threshold:
+                        self.start_new_recording()
+                    
+                    # Check if falling has continued for 50 frames
+                    if self.fall_recording and self.fall_frame_count >= 50:
+                        self.save_and_reset_recording()
+
+                # Display text and skeleton on frame
+                cv2.putText(frame, text, (frame.shape[1] - 150, 30), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, skeleton_color, 2, cv2.LINE_AA)
+                
+                # Draw landmarks
                 for landmark in selected_pose_landmarks:
                     x, y = int(landmark.x * frame.shape[1]), int(landmark.y * frame.shape[0])
                     cv2.circle(frame, (x, y), 5, skeleton_color, -1)
 
+                # Draw connections
                 for connection in self.connections:
                     start_idx, end_idx = connection
                     start_landmark = selected_pose_landmarks[start_idx]
@@ -400,19 +402,36 @@ class VideoApp(App):
                     end_x, end_y = int(end_landmark.x * frame.shape[1]), int(end_landmark.y * frame.shape[0])
                     cv2.line(frame, (start_x, start_y), (end_x, end_y), skeleton_color, 2)
 
-        # Если идёт запись падения, записываем кадр
+        # Write frame if recording is active
         if self.fall_recording and self.fall_segment_writer:
             self.fall_segment_writer.write(frame)
+
+    def start_new_recording(self):
+        """Starts a new fall recording segment."""
+        self.fall_recording = True
+        self.fall_segment_index += 1
+        self.fall_segment_writer = cv2.VideoWriter(
+            self.fall_segment_path.format(self.fall_segment_index),
+            self.fourcc, self.new_fps, (self.frame_width, self.frame_height)
+        )
+
+    def save_and_reset_recording(self):
+        """Saves the current recording and resets recording state."""
+        self.fall_recording = False
+        if self.fall_segment_writer:
+            self.fall_segment_writer.release()
+            self.fall_segment_writer = None
+        self.fall_frame_count = 0  # Reset fall frame count after saving
 
     
                   
     def start_video(self):
-        # Запускаем поток для обработки видео
+        # Launch a stream for video processing
         self.thread = threading.Thread(target=self.main_loop)
         self.thread.start()
        
 
 
 app = VideoApp()
-app.start_video()  # Запускаем обработку видео
+app.start_video()  # start video processing
 app.run()
